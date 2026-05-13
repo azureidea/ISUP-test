@@ -8,9 +8,10 @@ import lombok.extern.slf4j.Slf4j;
  * 基于实际设备报文反推的真实格式（与官方文档不同）
  *
  * 实际消息头格式（变长）：
- * [0-1]   协议版本 (2 字节，大端) - 0x0101 = V5.0
- * [2-3]   消息类型 (2 字节，大端) - 0x0009 = 注册请求
- * [4-N]   源设备序列号 (变长 ASCII) - 如"GA7572936"
+ * [0-1]   起始标识 (2 字节，大端) - 固定 0xEB90
+ * [2-3]   协议版本 (2 字节，大端) - 0x0500 = V5.0
+ * [4-5]   消息类型 (2 字节，大端) - 0x0009 = 注册请求
+ * [6-N]   源设备序列号 (变长 ASCII) - 如"GA7572936"
  * [N+1]   下一字段长度 (1 字节)
  * [N+2-M] 设备标识/验证码 (变长 ASCII)
  * [M+1]   保留字节 (1 字节，0x00)
@@ -24,6 +25,11 @@ import lombok.extern.slf4j.Slf4j;
 public class IsupMessageHeader {
 
     /**
+     * ISUP v5.0 起始标识
+     */
+    public static final short START_FLAG = (short) 0xEB90;
+
+    /**
      * 最小消息头长度（根据实际报文）
      */
     public static final int MIN_HEADER_LENGTH = 36;
@@ -34,7 +40,12 @@ public class IsupMessageHeader {
     public static final int HEADER_LENGTH = 92;
 
     /**
-     * 协议版本（2 字节）：0x0101-ISUP 5.0
+     * 起始标识（2 字节）：0xEB90
+     */
+    private short startFlag;
+
+    /**
+     * 协议版本（2 字节）：0x0500-ISUP 5.0
      */
     private short protocolVersion;
 
@@ -149,9 +160,10 @@ public class IsupMessageHeader {
     /**
      * 从字节数组解析消息头（大端模式）
      * ISUP v5.0 实际消息头结构（变长，基于真实报文反推）：
-     * [0-1]   协议版本 (2 字节) - 0x0101
-     * [2-3]   消息类型 (2 字节)
-     * [4-N]   源设备序列号 (变长 ASCII，以 0x0e 或其他非打印字符结束)
+     * [0-1]   起始标识 (2 字节) - 固定 0xEB90
+     * [2-3]   协议版本 (2 字节) - 0x0500
+     * [4-5]   消息类型 (2 字节)
+     * [6-N]   源设备序列号 (变长 ASCII，以非打印字符结束)
      * [N+1]   设备码长度 (1 字节)
      * [N+2-M] 设备码 (变长 ASCII)
      * [M+1]   保留字节 (1 字节，0x00)
@@ -167,36 +179,33 @@ public class IsupMessageHeader {
         IsupMessageHeader header = new IsupMessageHeader();
         int pos = offset;
 
-        // [0-1] 协议版本（2 字节，大端）
+        // [0-1] 起始标识（2 字节，大端）- 验证是否为 0xEB90
+        short startFlag = (short) (((data[pos++] & 0xFF) << 8) | (data[pos++] & 0xFF));
+        if (startFlag != START_FLAG) {
+            log.warn("起始标识不匹配：期望 0xEB90, 实际 0x{:04X}，尝试继续解析", startFlag);
+        }
+        header.startFlag = startFlag;
+
+        // [2-3] 协议版本（2 字节，大端）
         header.protocolVersion = (short) (((data[pos++] & 0xFF) << 8) | (data[pos++] & 0xFF));
 
-        // [2-3] 消息类型（2 字节，大端）
+        // [4-5] 消息类型（2 字节，大端）
         header.messageType = (short) (((data[pos++] & 0xFF) << 8) | (data[pos++] & 0xFF));
 
-        // [4-N] 源设备序列号（变长 ASCII）
-        // 策略：读取直到遇到长度字段（通常是 0x0e 或类似的小值）
+        // [6-N] 源设备序列号（变长 ASCII）
+        // 策略：读取直到遇到非打印 ASCII 字符（长度字段）
         StringBuilder deviceId = new StringBuilder();
-        int deviceIdStart = pos;
         
-        // 先找到设备码长度字段的位置
-        // 设备序列号通常是 9-12 个字符，然后紧跟一个长度字节（通常 < 0x20）
+        // 设备序列号通常是 9-12 个可打印字符，然后紧跟一个长度字节（通常 < 0x20）
         while (pos < data.length) {
             byte b = data[pos];
             
-            // 检查是否是可打印 ASCII 字符
+            // 检查是否是可打印 ASCII 字符 (0x20-0x7E)
             if (b >= 0x20 && b <= 0x7E) {
-                // 可能是设备 ID 的一部分，但也要检查是否是长度字段
-                // 如果后面紧跟的字节看起来像长度字段，则停止
-                if (pos + 1 < data.length) {
-                    byte nextByte = data[pos + 1];
-                    // 如果当前字符是设备 ID 的正常字符，继续
-                    deviceId.append((char) b);
-                    pos++;
-                } else {
-                    break;
-                }
+                deviceId.append((char) b);
+                pos++;
             } else {
-                // 遇到非打印字符，可能是长度字段或分隔符
+                // 遇到非打印字符，停止读取设备 ID
                 break;
             }
         }
@@ -209,7 +218,7 @@ public class IsupMessageHeader {
         int deviceCodeLen = data[pos++] & 0xFF;
         
         // 验证设备码长度是否合理（通常 1-64 字节）
-        if (deviceCodeLen > 128) {
+        if (deviceCodeLen > 128 || deviceCodeLen < 1) {
             throw new IllegalArgumentException("设备码长度异常：" + deviceCodeLen);
         }
 
