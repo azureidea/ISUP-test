@@ -29,6 +29,11 @@ public class IsupMessageHeader {
     public static final int MIN_HEADER_LENGTH = 36;
 
     /**
+     * 默认消息头长度（用于响应消息，固定格式）
+     */
+    public static final int HEADER_LENGTH = 92;
+
+    /**
      * 协议版本（2 字节）：0x0101-ISUP 5.0
      */
     private short protocolVersion;
@@ -42,6 +47,11 @@ public class IsupMessageHeader {
      * 源设备序列号（变长 ASCII）
      */
     private String sourceDeviceId;
+
+    /**
+     * 目标设备序列号（用于响应消息，变长 ASCII）
+     */
+    private String targetDeviceId;
 
     /**
      * 设备验证码/标识（变长 ASCII）
@@ -73,19 +83,20 @@ public class IsupMessageHeader {
      */
     private short crcCode;
 
+    // 以下为兼容字段（仅用于固定格式响应消息）
+    private byte reserved = 0x00;
+
     /**
-     * 将消息头序列化为字节数组（大端模式）
+     * 将消息头序列化为字节数组（大端模式）- 固定 92 字节格式用于响应消息
      * @return 92 字节的消息头数组
      */
     public byte[] toBytes() {
         byte[] buffer = new byte[HEADER_LENGTH];
         int offset = 0;
 
-        // 协议版本（1 字节）
-        buffer[offset++] = protocolVersion;
-
-        // 保留位（1 字节）
-        buffer[offset++] = reserved;
+        // 协议版本（2 字节，大端）
+        buffer[offset++] = (byte) ((protocolVersion >> 8) & 0xFF);
+        buffer[offset++] = (byte) (protocolVersion & 0xFF);
 
         // 消息类型（2 字节，大端）
         buffer[offset++] = (byte) ((messageType >> 8) & 0xFF);
@@ -123,7 +134,7 @@ public class IsupMessageHeader {
             }
         }
 
-        // 保留位 2（12 字节）
+        // 保留位（12 字节）
         for (int i = 0; i < 12; i++) {
             buffer[offset++] = 0x00;
         }
@@ -260,15 +271,13 @@ public class IsupMessageHeader {
      */
     public void printDebugInfo() {
         log.debug("===== ISUP 消息头 =====");
-        log.debug("起始标识：0x{:04X}", startFlag);
-        log.debug("消息长度：{}", messageLength);
-        log.debug("协议版本：0x{:02X} (ISUP {})", protocolVersion, getVersionDescription());
+        log.debug("协议版本：0x{:04X} (ISUP {})", protocolVersion, getVersionDescription());
         log.debug("消息类型：0x{:04X} ({})", messageType, IsupMessageType.getMessageTypeDescription(messageType));
         log.debug("序列号：{}", sequenceNumber);
         log.debug("源设备 ID: {}", sourceDeviceId);
         log.debug("目标设备 ID: {}", targetDeviceId);
         log.debug("加密标志：0x{:02X} ({})", encryptionFlag, getEncryptionDescription());
-        if (encryptionFlag == 0x01 && ivVector != null) {
+        if (ivVector != null) {
             log.debug("IV 向量：{}", bytesToHex(ivVector));
         }
         log.debug("CRC 校验码：0x{:04X}", crcCode);
