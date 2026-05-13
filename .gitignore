@@ -1,1 +1,1 @@
-(src/main/java/com/example/isup/IsupServerHandler.java)
+Nothing should be ignored based on the provided file changes. The only modified file is a Java source code file (`src/main/java/com/example/isup/IsupSessionManager.java`), which should not be ignored. There are no build artifacts, dependency directories, temporary files, or other items that need to be added to the .gitignore file.

@@ -123,4 +123,27 @@ public class IsupSessionManager {
             return false;
         });
     }
+
+    /**
+     * 清理断开的设备连接
+     * 当 Channel 断开时，移除对应的设备会话
+     * @param channel 断开的连接通道
+     */
+    public synchronized void cleanupDisconnectedDevice(Channel channel) {
+        String deviceId = channelMap.remove(channel);
+        if (deviceId != null) {
+            IsupDevice device = deviceMap.get(deviceId);
+            if (device != null) {
+                // 检查是否还有其他通道连接该设备
+                boolean hasOtherChannel = channelMap.containsValue(deviceId);
+                if (!hasOtherChannel) {
+                    deviceMap.remove(deviceId);
+                    device.setOnline(false);
+                    log.info("设备连接断开，已注销：{}, 当前在线设备数：{}", deviceId, deviceMap.size());
+                } else {
+                    log.info("设备仍有其他连接，保持在线：{}", deviceId);
+                }
+            }
+        }
+    }
 }
