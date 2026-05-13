@@ -151,11 +151,11 @@ public class IsupMessageHeader {
      * ISUP v5.0 实际消息头结构（变长，基于真实报文反推）：
      * [0-1]   协议版本 (2 字节) - 0x0101
      * [2-3]   消息类型 (2 字节)
-     * [4-N]   源设备序列号 (变长 ASCII，直到遇到长度字段)
+     * [4-N]   源设备序列号 (变长 ASCII，以 0x0e 或其他非打印字符结束)
      * [N+1]   设备码长度 (1 字节)
      * [N+2-M] 设备码 (变长 ASCII)
      * [M+1]   保留字节 (1 字节，0x00)
-     * [M+2-M+5] 序列号 (4 字节) - 注意：这里的序列号可能包含 ASCII 字符
+     * [M+2-M+5] 序列号 (4 字节)
      * [M+6]   加密标志 (1 字节) - 0x00=不加密，0x01=AES-CBC, 0x02=已加密
      * [M+7-M+22] IV 向量 (16 字节)
      */
@@ -173,25 +173,45 @@ public class IsupMessageHeader {
         // [2-3] 消息类型（2 字节，大端）
         header.messageType = (short) (((data[pos++] & 0xFF) << 8) | (data[pos++] & 0xFF));
 
-        // [4-N] 源设备序列号（变长，读取直到遇到非 ASCII 可打印字符或长度字段）
+        // [4-N] 源设备序列号（变长 ASCII）
+        // 策略：读取直到遇到长度字段（通常是 0x0e 或类似的小值）
         StringBuilder deviceId = new StringBuilder();
+        int deviceIdStart = pos;
+        
+        // 先找到设备码长度字段的位置
+        // 设备序列号通常是 9-12 个字符，然后紧跟一个长度字节（通常 < 0x20）
         while (pos < data.length) {
             byte b = data[pos];
-            // 如果是可打印 ASCII 字符（0x20-0x7E），继续读取
+            
+            // 检查是否是可打印 ASCII 字符
             if (b >= 0x20 && b <= 0x7E) {
-                deviceId.append((char) b);
-                pos++;
+                // 可能是设备 ID 的一部分，但也要检查是否是长度字段
+                // 如果后面紧跟的字节看起来像长度字段，则停止
+                if (pos + 1 < data.length) {
+                    byte nextByte = data[pos + 1];
+                    // 如果当前字符是设备 ID 的正常字符，继续
+                    deviceId.append((char) b);
+                    pos++;
+                } else {
+                    break;
+                }
             } else {
+                // 遇到非打印字符，可能是长度字段或分隔符
                 break;
             }
         }
-        header.sourceDeviceId = deviceId.toString();
+        header.sourceDeviceId = deviceId.toString().trim();
 
         // [N+1] 设备码长度（1 字节）
         if (pos >= data.length) {
             throw new IllegalArgumentException("数据不完整，缺少设备码长度字段");
         }
         int deviceCodeLen = data[pos++] & 0xFF;
+        
+        // 验证设备码长度是否合理（通常 1-64 字节）
+        if (deviceCodeLen > 128) {
+            throw new IllegalArgumentException("设备码长度异常：" + deviceCodeLen);
+        }
 
         // [N+2-M] 设备码（变长 ASCII）
         if (pos + deviceCodeLen > data.length) {
@@ -209,8 +229,6 @@ public class IsupMessageHeader {
         pos++; // 跳过保留字节
 
         // [M+2-M+5] 序列号（4 字节，大端）
-        // 注意：在实际报文中，这个字段可能包含 ASCII 字符（如"GA75"）
-        // 这是海康的非标准实现
         if (pos + 4 > data.length) {
             throw new IllegalArgumentException("数据不完整，缺少序列号");
         }
@@ -220,7 +238,6 @@ public class IsupMessageHeader {
                 (data[pos++] & 0xFF);
 
         // [M+6] 加密标志（1 字节）
-        // 注意：在实际报文中，加密标志可能是 0x02 而不是 0x01
         if (pos >= data.length) {
             throw new IllegalArgumentException("数据不完整，缺少加密标志");
         }
