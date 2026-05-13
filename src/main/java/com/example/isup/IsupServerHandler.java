@@ -170,7 +170,6 @@ public class IsupServerHandler extends ChannelInboundHandlerAdapter {
         responseHeader.setMessageType(IsupMessageType.DEVICE_REGISTER_RESP);
         responseHeader.setSequenceNumber(requestHeader.getSequenceNumber());
         responseHeader.setSourceDeviceId("PLATFORM"); // 平台标识
-        responseHeader.setTargetDeviceId(requestHeader.getSourceDeviceId());
         responseHeader.setProtocolVersion((short) 0x0101);
         responseHeader.setEncryptionFlag((byte) 0x00);
 
@@ -202,7 +201,6 @@ public class IsupServerHandler extends ChannelInboundHandlerAdapter {
         responseHeader.setMessageType(IsupMessageType.HEARTBEAT_RESP);
         responseHeader.setSequenceNumber(header.getSequenceNumber());
         responseHeader.setSourceDeviceId("PLATFORM");
-        responseHeader.setTargetDeviceId(header.getSourceDeviceId());
         responseHeader.setProtocolVersion((short) 0x0101);
         responseHeader.setEncryptionFlag((byte) 0x00);
 
@@ -219,7 +217,6 @@ public class IsupServerHandler extends ChannelInboundHandlerAdapter {
         responseHeader.setMessageType(IsupMessageType.DEVICE_UNREGISTER_RESP);
         responseHeader.setSequenceNumber(header.getSequenceNumber());
         responseHeader.setSourceDeviceId("PLATFORM");
-        responseHeader.setTargetDeviceId(header.getSourceDeviceId());
         responseHeader.setProtocolVersion((short) 0x0101);
         responseHeader.setEncryptionFlag((byte) 0x00);
 
@@ -238,7 +235,6 @@ public class IsupServerHandler extends ChannelInboundHandlerAdapter {
         responseHeader.setMessageType(IsupMessageType.ALARM_INPUT_ACK);
         responseHeader.setSequenceNumber(header.getSequenceNumber());
         responseHeader.setSourceDeviceId("PLATFORM");
-        responseHeader.setTargetDeviceId(header.getSourceDeviceId());
 
         byte[] responseBody = new byte[2];
         responseBody[0] = 0x00;
@@ -255,7 +251,6 @@ public class IsupServerHandler extends ChannelInboundHandlerAdapter {
         responseHeader.setMessageType(IsupMessageType.HEARTBEAT_RESP);
         responseHeader.setSequenceNumber(header.getSequenceNumber());
         responseHeader.setSourceDeviceId("PLATFORM");
-        responseHeader.setTargetDeviceId(header.getSourceDeviceId());
 
         byte[] responseBody = new byte[2];
         responseBody[0] = 0x00;
@@ -272,7 +267,6 @@ public class IsupServerHandler extends ChannelInboundHandlerAdapter {
         responseHeader.setMessageType((short) (requestHeader.getMessageType() + 1));
         responseHeader.setSequenceNumber(requestHeader.getSequenceNumber());
         responseHeader.setSourceDeviceId("PLATFORM");
-        responseHeader.setTargetDeviceId(requestHeader.getSourceDeviceId());
         responseHeader.setProtocolVersion((short) 0x0101);
         responseHeader.setEncryptionFlag((byte) 0x00);
 
