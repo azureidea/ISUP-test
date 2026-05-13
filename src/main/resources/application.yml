@@ -1,0 +1,7 @@
+spring:
+  isup:
+    server:
+      port: 7660
+      backlog: 1024
+      so-keepalive: true
+      idle-timeout: 100
