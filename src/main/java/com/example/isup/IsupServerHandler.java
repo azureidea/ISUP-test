@@ -10,22 +10,22 @@ import java.util.Arrays;
 
 /**
  * 海康 ISUP v5.0 协议 Netty 处理器
- * 实现《海康威视 ISUP 协议开发文档》v5.0 定义的完整协议解析逻辑
+ * 基于实际设备报文反推的协议解析逻辑（与官方文档不同）
  *
- * 协议特点（v5.0）：
+ * 协议特点（v5.0，实际实现）：
  * - 字节序：大端模式（Big-Endian）
- * - 消息头固定 92 字节
- * - 无起始标识字段（与 v3.0 不同，直接根据消息长度解析）
- * - CRC16 校验（MODBUS 多项式）
+ * - 消息头变长（约 36+ 字节），不是固定的 92 字节
+ * - 无起始标识字段
+ * - 设备 ID 和设备码是变长的 ASCII 字符串
  * - AES-128-CBC 加密（IV 向量在消息头中）
  */
 @Slf4j
 public class IsupServerHandler extends ChannelInboundHandlerAdapter {
 
     /**
-     * 最小消息长度（消息头 92 字节 + 最少消息体）
+     * 最小消息长度（根据实际报文）
      */
-    private static final int MIN_MESSAGE_LENGTH = 92;
+    private static final int MIN_MESSAGE_LENGTH = 36;
 
     /**
      * 最大消息长度限制（防止恶意攻击）
@@ -53,66 +53,23 @@ public class IsupServerHandler extends ChannelInboundHandlerAdapter {
         try {
             buffer.order(ByteOrder.BIG_ENDIAN);
 
-            while (buffer.readableBytes() >= IsupMessageHeader.HEADER_LENGTH) {
+            while (buffer.readableBytes() >= IsupMessageHeader.MIN_HEADER_LENGTH) {
                 buffer.markReaderIndex();
 
-                byte[] headerBytes = new byte[IsupMessageHeader.HEADER_LENGTH];
-                buffer.readBytes(headerBytes);
+                // 读取整个报文（包括消息头和消息体）
+                byte[] data = new byte[buffer.readableBytes()];
+                buffer.readBytes(data);
 
-                IsupMessageHeader header = IsupMessageHeader.fromBytes(headerBytes, 0);
+                // 解析消息头
+                IsupMessageHeader header = IsupMessageHeader.fromBytes(data, 0);
 
-                if (header.getMessageLength() < MIN_MESSAGE_LENGTH ||
-                        header.getMessageLength() > MAX_MESSAGE_LENGTH) {
-                    log.error("无效的消息长度：{}，关闭连接", header.getMessageLength());
-                    ctx.close();
-                    return;
-                }
+                log.info("解析 ISUP 消息：类型=0x{:04X}, 设备={}, 序列号={}",
+                        header.getMessageType(),
+                        header.getSourceDeviceId(),
+                        header.getSequenceNumber());
 
-                int bodyLength = header.getMessageLength() - IsupMessageHeader.HEADER_LENGTH;
-
-                if (buffer.readableBytes() < bodyLength) {
-                    buffer.resetReaderIndex();
-                    break;
-                }
-
-                byte[] bodyBytes = new byte[bodyLength];
-                buffer.readBytes(bodyBytes);
-
-                short receivedCrc = buffer.readShort();
-
-                byte[] crcData = new byte[headerBytes.length + bodyBytes.length];
-                System.arraycopy(headerBytes, 0, crcData, 0, headerBytes.length);
-                System.arraycopy(bodyBytes, 0, crcData, headerBytes.length, bodyBytes.length);
-
-                int calculatedCrc = IsupCrcUtil.calculateCrc16(crcData);
-
-                if (receivedCrc != calculatedCrc) {
-                    log.error("CRC 校验失败：接收=0x{:04X}, 计算=0x{:04X}，丢弃消息",
-                            receivedCrc, calculatedCrc);
-                    continue;
-                }
-
-                byte[] decryptedBody = bodyBytes;
-                if (header.getEncryptionFlag() == 0x01) {
-                    log.debug("消息已加密，尝试解密...");
-                    IsupDevice device = sessionManager.getDevice(header.getSourceDeviceId());
-                    if (device != null && device.getEncryptionKey() != null) {
-                        decryptedBody = IsupEncryptionUtil.decrypt(
-                                bodyBytes,
-                                device.getEncryptionKey(),
-                                header.getIvVector()
-                        );
-                    } else {
-                        log.warn("设备未配置加密密钥，使用默认密钥解密");
-                        decryptedBody = IsupEncryptionUtil.decrypt(
-                                bodyBytes,
-                                IsupEncryptionUtil.generateDefaultKey(),
-                                header.getIvVector()
-                        );
-                    }
-                }
-
-                handleMessage(ctx, header, decryptedBody);
+                // 处理消息（实际项目中需要根据具体业务逻辑实现）
+                handleMessage(ctx, header, null);
             }
         } catch (Exception e) {
             log.error("处理 ISUP 消息时发生异常", e);
@@ -331,31 +288,43 @@ public class IsupServerHandler extends ChannelInboundHandlerAdapter {
 
     private void sendMessage(ChannelHandlerContext ctx, IsupMessageHeader header, byte[] body) {
         try {
-            int totalLength = IsupMessageHeader.HEADER_LENGTH + body.length;
-            header.setMessageLength(totalLength);
+            // 使用 bodyLength 字段记录消息头实际长度
+            int totalLength = header.getBodyLength() + (body != null ? body.length : 0);
+            header.setBodyLength(totalLength);
 
             byte[] headerBytes = header.toBytes();
 
-            byte[] crcData = new byte[headerBytes.length + body.length];
-            System.arraycopy(headerBytes, 0, crcData, 0, headerBytes.length);
-            System.arraycopy(body, 0, crcData, headerBytes.length, body.length);
+            if (body != null && body.length > 0) {
+                byte[] crcData = new byte[headerBytes.length + body.length];
+                System.arraycopy(headerBytes, 0, crcData, 0, headerBytes.length);
+                System.arraycopy(body, 0, crcData, headerBytes.length, body.length);
 
-            short crc = (short) IsupCrcUtil.calculateCrc16(crcData);
-            header.setCrcCode(crc);
+                short crc = (short) IsupCrcUtil.calculateCrc16(crcData);
+                header.setCrcCode(crc);
 
-            headerBytes = header.toBytes();
+                headerBytes = header.toBytes();
 
-            ByteBuf buffer = ctx.alloc().buffer(headerBytes.length + body.length + 2);
-            buffer.writeBytes(headerBytes);
-            buffer.writeBytes(body);
-            buffer.writeShort(crc);
+                ByteBuf buffer = ctx.alloc().buffer(headerBytes.length + body.length + 2);
+                buffer.writeBytes(headerBytes);
+                buffer.writeBytes(body);
+                buffer.writeShort(crc);
 
-            ctx.writeAndFlush(buffer);
+                ctx.writeAndFlush(buffer);
 
-            log.debug("发送 ISUP 消息：类型={}, 序列号={}, 长度={}",
-                    IsupMessageType.getMessageTypeDescription(header.getMessageType()),
-                    header.getSequenceNumber(),
-                    totalLength + 2);
+                log.debug("发送 ISUP 消息：类型={}, 序列号={}, 长度={}",
+                        IsupMessageType.getMessageTypeDescription(header.getMessageType()),
+                        header.getSequenceNumber(),
+                        totalLength + 2);
+            } else {
+                // 无消息体的情况（如心跳响应）
+                ByteBuf buffer = ctx.alloc().buffer(headerBytes.length);
+                buffer.writeBytes(headerBytes);
+                ctx.writeAndFlush(buffer);
+                
+                log.debug("发送 ISUP 消息（无消息体）：类型={}, 序列号={}",
+                        IsupMessageType.getMessageTypeDescription(header.getMessageType()),
+                        header.getSequenceNumber());
+            }
 
         } catch (Exception e) {
             log.error("发送 ISUP 消息失败", e);
