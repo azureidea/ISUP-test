@@ -63,8 +63,9 @@ public class IsupServerHandler extends ChannelInboundHandlerAdapter {
                 // 解析消息头
                 IsupMessageHeader header = IsupMessageHeader.fromBytes(data, 0);
 
-                log.info("解析 ISUP 消息：类型=0x{:04X}, 设备={}, 序列号={}",
+                log.info("解析 ISUP 消息：类型=0x{:04X} ({}), 设备={}, 序列号={}",
                         header.getMessageType(),
+                        IsupMessageType.getMessageTypeDescription(header.getMessageType()),
                         header.getSourceDeviceId(),
                         header.getSequenceNumber());
 
@@ -104,7 +105,8 @@ public class IsupServerHandler extends ChannelInboundHandlerAdapter {
                 handleStreamForward(ctx, header, body);
                 break;
             default:
-                log.warn("未处理的 ISUP 消息类型：0x{:04X}", messageType);
+                log.warn("未处理的 ISUP 消息类型：0x{:04X} ({})", messageType, 
+                        IsupMessageType.getMessageTypeDescription(messageType));
                 sendErrorResponse(ctx, header, (short) 0x0100, "Unsupported message type");
         }
     }
@@ -281,10 +283,6 @@ public class IsupServerHandler extends ChannelInboundHandlerAdapter {
 
     private void sendMessage(ChannelHandlerContext ctx, IsupMessageHeader header, byte[] body) {
         try {
-            // 使用 bodyLength 字段记录消息头实际长度
-            int totalLength = header.getBodyLength() + (body != null ? body.length : 0);
-            header.setBodyLength(totalLength);
-
             byte[] headerBytes = header.toBytes();
 
             if (body != null && body.length > 0) {
@@ -307,7 +305,7 @@ public class IsupServerHandler extends ChannelInboundHandlerAdapter {
                 log.debug("发送 ISUP 消息：类型={}, 序列号={}, 长度={}",
                         IsupMessageType.getMessageTypeDescription(header.getMessageType()),
                         header.getSequenceNumber(),
-                        totalLength + 2);
+                        headerBytes.length + body.length + 2);
             } else {
                 // 无消息体的情况（如心跳响应）
                 ByteBuf buffer = ctx.alloc().buffer(headerBytes.length);
@@ -321,6 +319,7 @@ public class IsupServerHandler extends ChannelInboundHandlerAdapter {
 
         } catch (Exception e) {
             log.error("发送 ISUP 消息失败", e);
+            throw e; // Re-throw to let caller handle it
         }
     }
 
