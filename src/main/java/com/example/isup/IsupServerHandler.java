@@ -63,7 +63,7 @@ public class IsupServerHandler extends ChannelInboundHandlerAdapter {
                 // 解析消息头
                 IsupMessageHeader header = IsupMessageHeader.fromBytes(data, 0);
 
-                log.info("解析 ISUP 消息：类型=0x{:04X} ({}), 设备={}, 序列号={}",
+                log.info("解析 ISUP 消息：类型={} ({}), 设备={}, 序列号={}",
                         header.getMessageType(),
                         IsupMessageType.getMessageTypeDescription(header.getMessageType()),
                         header.getSourceDeviceId(),
@@ -105,7 +105,7 @@ public class IsupServerHandler extends ChannelInboundHandlerAdapter {
                 handleStreamForward(ctx, header, body);
                 break;
             default:
-                log.warn("未处理的 ISUP 消息类型：0x{:04X} ({})", messageType, 
+                log.warn("未处理的 ISUP 消息类型：{} ({})", messageType, 
                         IsupMessageType.getMessageTypeDescription(messageType));
                 sendErrorResponse(ctx, header, (short) 0x0100, "Unsupported message type");
         }

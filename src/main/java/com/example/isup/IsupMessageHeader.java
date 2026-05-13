@@ -182,7 +182,7 @@ public class IsupMessageHeader {
         // [0-1] 起始标识（2 字节，大端）- 验证是否为 0xEB90
         short startFlag = (short) (((data[pos++] & 0xFF) << 8) | (data[pos++] & 0xFF));
         if (startFlag != START_FLAG) {
-            log.warn("起始标识不匹配：期望 0xEB90, 实际 0x{:04X}，尝试继续解析", startFlag);
+            log.warn("起始标识不匹配：期望 0xEB90, 实际 {}，尝试继续解析", startFlag);
         }
         header.startFlag = startFlag;
 
@@ -297,16 +297,16 @@ public class IsupMessageHeader {
      */
     public void printDebugInfo() {
         log.debug("===== ISUP 消息头 =====");
-        log.debug("协议版本：0x{:04X} (ISUP {})", protocolVersion, getVersionDescription());
-        log.debug("消息类型：0x{:04X} ({})", messageType, IsupMessageType.getMessageTypeDescription(messageType));
+        log.debug("协议版本：{} (ISUP {})", protocolVersion, getVersionDescription());
+        log.debug("消息类型：{} ({})", messageType, IsupMessageType.getMessageTypeDescription(messageType));
         log.debug("序列号：{}", sequenceNumber);
         log.debug("源设备 ID: {}", sourceDeviceId);
         log.debug("目标设备 ID: {}", targetDeviceId);
-        log.debug("加密标志：0x{:02X} ({})", encryptionFlag, getEncryptionDescription());
+        log.debug("加密标志：{} ({})", encryptionFlag, getEncryptionDescription());
         if (ivVector != null) {
             log.debug("IV 向量：{}", bytesToHex(ivVector));
         }
-        log.debug("CRC 校验码：0x{:04X}", crcCode);
+        log.debug("CRC 校验码：{}", crcCode);
         log.debug("=====================");
     }
 
